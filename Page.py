@@ -1,10 +1,8 @@
 import datetime
-import traceback
 from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 import urllib.request
 from url_normalize import url_normalize
-import sys
 from urllib import robotparser
 
 
@@ -20,9 +18,8 @@ class Page(dict):
     depth = 0
     novelty = 0
     importance = 0
-    priority = novelty - importance
+    priority = 0
     is_valid = True
-    rp = robotparser.RobotFileParser()
     response_code = None
     denied_by_robot_exclusion = False
     timestamp = None
@@ -36,28 +33,30 @@ class Page(dict):
         self.query = self.parsed_url.query
         self.base_url = self.parsed_url[0] + '://' + self.parsed_url[1]
         self.depth = depth
-        self.rp.set_url(self.base_url + '/robots.txt')
 
     def __lt__(self, other):
         return self.priority < other.priority
 
     def update_novelty(self, novelty):
         self.novelty = novelty
-        self.priority = self.novelty - self.importance
+        self.update_priority()
 
     def update_importance(self, importance):
         self.importance = importance
-        self.priority = self.novelty - importance
+        self.update_priority()
+
+    def update_priority(self):
+        # found 0.001 by expermenting with different coeff. to damp down the importance suitably
+        self.priority = self.novelty - 0.001 * self.importance
 
     def fetch(self):
         try:
             with urllib.request.urlopen(self.url, timeout=5) as response:
                 self.response_code = response.code
                 self.time_stamp = datetime.datetime.now()
+                self.size = response.length
                 return response.read()
         except:
-            # traceback.print_exc()
-            # print('failed')
             return None
 
     def mine_urls(self, html_doc):
@@ -68,6 +67,8 @@ class Page(dict):
         for a in soup.find_all('a'):
             mined_urls.add(a.get('href'))
         return mined_urls
+
+    ''' vet the found hrefs for file extention, relative urls and complete urls'''
 
     def vet_url(self, url):
         if url is None:
@@ -86,6 +87,8 @@ class Page(dict):
         else:
             return None
 
+    ''' call vetting function and convert filtered urls to Page objects'''
+
     def vet_mined_urls(self, mined_urls):
         vetted_urls = []
         for mined_url in mined_urls:
@@ -95,11 +98,16 @@ class Page(dict):
         vetted_url_depth = self.depth + 1
         return [Page(page_url, vetted_url_depth) for page_url in vetted_urls]
 
+    ''' function that co-ordinates robot exclusion fetching and mining the urls for the given object'''
     def process(self):
-        self.rp.read()
-        if not self.rp.can_fetch("*", self.url):
+        if not self.is_valid:
+            return
+        rp = robotparser.RobotFileParser()
+        rp.set_url(self.base_url + '/robots.txt')
+        rp.read()
+        if not rp.can_fetch("bob", self.url):
             self.denied_by_robot_exclusion = True
-            return None
+            return
         html_doc = self.fetch()
         if html_doc is None:
             return

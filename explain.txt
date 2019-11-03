@@ -1,0 +1,30 @@
+The priority coder works following way:
+1. first the seed urls are fetch from google and converted into Page objects and put in the priority queue
+2. crawler spawns multiple threads each of which runs util target urls are crawled and continuously picks a Page objects
+   from the priority queue.
+3. It checks if the Page has been already crawled and is still valid. Then calls process method on the Page object fetches the page and mines the new urls in it and returns.
+   Process method takes care of robot exclusion
+4. The crawled url is then added to crawled dictonary in a tree format, the url is chopped in its constituents parts
+   i.e. domain, path and query and stored in a tree format. at each level i.e. domain, path and query we keep count of
+   visit.
+   example: if two https://en.wikipedia.org/wiki/Australia and https://en.wikipedia.org/wiki/Tasmania then we store counts as
+    { en.wikipedia.org: { count:2, wiki:{count:2, Australia: 1, Tasmania:1}}
+5. We do this to calculate novelty of new url at a more granular level, the more the count more the url will be punished form
+   not being novel. also the further we we go in the tree the tree more the punishment for not being novel.
+   i.e. matches that are deeper are punished more
+
+6. We store the newly found urls in a similar dictonary tree as explored urls, we count the visits in the same way.
+   The only difference is the deeper matches are rewarded more as deeper match means the url is referenced more times.
+
+7. Importance is assigned while inserting Page in the queue while novelty is decided while popping Page off the queue.
+
+8. priority = novelty - 0.001* importance, the coeff. 0.001 has been arrieved at experimentally. The coeff. is required as
+   at any given time importance dominates the novelty as frontier is much more bigger than crawled web space. Without then
+   the coeff the crawler would go deep in an important site and not visit othe sites at all.
+
+9. The effect of above formula is that the crawler first goes deep in an important sites and as the it goes deep the novelty
+   score kicks in and pushes the cralwer to visit other sites
+
+Known issues:
+1. For a large crawl the threadpool takes significant amount of time to wind-down and exit the program.
+2. The crawler overshoots target by small margin as after achieving target winding-down-threads put their crawled urls in the output before leaving.
